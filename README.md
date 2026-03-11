@@ -1,0 +1,1 @@
+The generate_normal.py is for generating normal mean and standard deviation using time window of 600 seconds and time step of 10 seconds and store them in a .json file. The prome_metrics.py is for detecting anomaly using 300 seconds with time step of 15 seconds
