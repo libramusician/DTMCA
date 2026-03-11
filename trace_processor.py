@@ -42,7 +42,7 @@ def process_trace(trace_id: str, trace_df: pd.DataFrame):
             span_id=span_id,
             parent_id=parent_id,
             service=service_name,
-            cmdb=str(row['cmdb_id']),
+            instance_id=str(row['cmdb_id']),
             operation=str(row['callType']),
             duration=float(row['elapsedTime']),
             success=str(row['success']).lower() == 'true',

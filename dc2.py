@@ -1,7 +1,12 @@
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import List, Dict, Set
-
+class Process:
+    def __init__(self, id: str):
+        self.id = id
+        self.hostname = None
+        self.container_id = None
+        self.serviceName = None
 
 @dataclass
 class SpanNode:
@@ -10,11 +15,11 @@ class SpanNode:
     operation: str
     parent_id: str
     start_time_stamp: int
-    duration: float
+    duration: int
     # tags
     service: str
-    instance_id: str
-    success: bool
+    process: Process
+    error: bool
     caused_by_failed_spans: list
     children: List['SpanNode'] = field(default_factory=list)
 
@@ -34,7 +39,7 @@ class Trace:
     root: SpanNode
     spans: Dict[str, SpanNode]
     failed_services: Set[str]
-    start_time_ms: int
+    start_time_stamp: int
     root_causes: list[SpanNode]
 
 
@@ -84,3 +89,4 @@ class MinuteBucket:
     def __init__(self, minute_key: str):
         self.minute_key = minute_key
         self.traces = {}
+
