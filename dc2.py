@@ -32,6 +32,9 @@ class SpanNode:
     def __hash__(self):
         return self.span_id
 
+    def __repr__(self):
+        return f"{self.span_id}|{self.service}|{self.operation}"
+
 @dataclass
 class Trace:
     """完整的trace，跨文件收集"""
@@ -41,6 +44,7 @@ class Trace:
     failed_services: Set[str]
     start_time_stamp: int
     root_causes: list[SpanNode]
+    orphans: list[SpanNode]
 
 
 @dataclass

@@ -1,0 +1,9 @@
+jvm_cpu_recent_utilization_ratio:
+  container_identifier: service_instance_id
+  service_identifier: service_name
+
+container_cpu_utilization_ratio:
+  host_identifier: host_name
+  service_identifier: container_name
+
+jvm_gc_duration_seconds_count:
