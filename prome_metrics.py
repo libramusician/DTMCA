@@ -1,55 +1,53 @@
-import time
-import requests
 import json
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
 
-def compute_z_score(val, mean, std):
-    return (val - mean) / std
+metrics = [
+    "jvm_cpu_recent_utilization_ratio",
+    "container_memory_percent_ratio",
+    "kafka_consumer_commit_rate"
+]
+
+ground_truth = []
+anomaly_detection = []
+
+with open('prometheus_metrics.csv', 'r') as f:
+    data_dict = json.load(f)
 
 
-while True:
-    end = time.time()
-    start = end - 300
+# The upper and lower bound of different metrics and services
+for metric in metrics:
+    with open(f"ci_results/{metric}.json", 'r') as file:
+        ci_dict = json.load(file)
 
-    metric_list = ["system_cpu_utilization_ratio"]
-    for m in range(len(metric_list)):
-        params = {
-            "query": metric_list[m],
-            "start": start,
-            "end": end,
-            "step": "15s"
-        }
+    # The observation period of different metrics and services
+    with open(f"observation_period/{metric}.json", 'r') as obs_file:
+        obs_dict = json.load(obs_file)
 
-        response = requests.get("http://192.168.1.28:9090/api/v1/query_range", params=params)
-        print(response.status_code)
-        res = json.dumps(response.json(), indent=2)
-        print(res)
-        res = json.loads(res)
+    obs_period = obs_dict[metric]
 
-        # anomaly detection here
-        with open(f'{metric_list[m]}.json', 'r') as file:
-            data_dict = json.load(file)
-
-        for i in range(len(res['data']['result'])):
+    for i in range(len(data_dict['data']['result'])):
+        obs_start = 0
+        obs_end = obs_start + obs_period - 1
+        value = data_dict['data']['result'][i]['values']
+        upper_bound = data_dict[metric]['upper']
+        lower_bound = data_dict[metric]['lower']
+        anomaly = False
+        while obs_end < len(value):
             count = 0
-            metric = metric_list[m]
-            value = res['data']['result'][i]['values']
-            normal_mean = data_dict[str(res['data']['result'][i]['metric'])][0]
-            normal_std = data_dict[str(res['data']['result'][i]['metric'])][1]
-            value_lst = []
-            for j in range(len(value)):
-                value_lst.append(float(value[j][1]))
+            for j in range(obs_start, obs_end + 1):
+                if value[j] >= upper_bound or value[j] <= lower_bound:
+                    count += 1
 
-            value_mean = sum(value_lst) / len(value_lst)
-            if not normal_std == 0:
-                if compute_z_score(value_mean, normal_mean, normal_std) > 3:
-                    print('Anomaly detected')
+            if count == obs_period:
+                anomaly = True
+                anomaly_detection.append(1)
+                break
 
-                else:
-                    print('Normal')
+        if not anomaly:
+            anomaly_detection.append(0)
 
-                print('The metric values and the timestamps are', value)
-                print('z-scores is: ', compute_z_score(value_mean, normal_mean, normal_std))
-                print('The combination is: ', res['data']['result'][i]['metric'])
-                print('The normal mean and standard deviation are: ', data_dict[str(res['data']['result'][i]['metric'])])
-    time.sleep(15)
+    accuracy = accuracy_score(ground_truth, anomaly_detection)
+    recall = recall_score(ground_truth, anomaly_detection)
+    precision = precision_score(ground_truth, anomaly_detection)
+    f1_score = f1_score(ground_truth, anomaly_detection)

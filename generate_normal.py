@@ -1,43 +1,111 @@
-import time
 import requests
+import pandas as pd
+import numpy as np
 import json
-import statistics
+import time
+import os
+
+# -------------------------
+# 1. Prometheus settings
+# -------------------------
+PROM_URL = "http://192.168.1.27:9090/api/v1/query_range"
+
+metrics = [
+    "jvm_cpu_recent_utilization_ratio",
+    "container_memory_percent_ratio",
+    "kafka_consumer_commit_rate"
+]
+
+metric_flgd_dict = {"jvm_cpu_recent_utilization_ratio": "adHighCpu", "container_memory_percent_ratio": "emailMemoryLeak",
+               "kafka_consumer_commit_rate": "kafkaQueueProblems"}  # multiple metrics
+
+metric_label_dict = {"jvm_cpu_recent_utilization_ratio": "instance", "container_memory_percent_ratio": "container_name",
+                     "kafka_consumer_commit_rate": "instance"}
+
+hours = 5
+step = 5  # seconds
+
+start_time = int(time.time()) - hours * 60 * 60
+end_time = int(time.time())
+
+# Create output folder
+os.makedirs("ci_results", exist_ok=True)
+
+# -------------------------
+# 2. Bootstrap CI function
+# -------------------------
+def bootstrap_ci(values, n_boot=1000, ci=95):
+    boot_means = []
+
+    for _ in range(n_boot):
+        sample = np.random.choice(values, size=len(values), replace=True)
+        boot_means.append(np.mean(sample))
+
+    lower = np.percentile(boot_means, (100 - ci) / 2)
+    upper = np.percentile(boot_means, 100 - (100 - ci) / 2)
+
+    return float(lower), float(upper)
+
+# -------------------------
+# 3. Fetch + compute CI per series
+# -------------------------
+for metric in metrics:
+    print(f"\nFetching metric: {metric}")
+
+    response = requests.get(PROM_URL, params={
+        "query": metric,
+        "start": start_time,
+        "end": end_time,
+        "step": step
+    })
+
+    result = response.json()
+
+    if not result["data"]["result"]:
+        print(f"❌ No data found for {metric}")
+        continue
+
+    metric_ci = {}
+
+    # ---- process each series separately ----
+    for series in result["data"]["result"]:
+        label = series["metric"]  # Prometheus labels
+        times = [float(v[0]) for v in series["values"]]
+        values = [float(v[1]) for v in series["values"]]
+
+        df_series = pd.DataFrame({
+            "time": times,
+            "value": values
+        })
+
+        # Clean data
+        df_series = df_series.sort_values("time")
+        df_series = df_series.ffill().bfill()
+
+        values = df_series["value"].dropna().values
+
+        print(f"{len(values)} points")
+
+        if len(values) < 20:
+            print(f"⚠️ Skipping {label} (not enough data)")
+            continue
+
+        # ---- compute CI ----
+        lower, upper = bootstrap_ci(values)
 
 
-def compute_mean_variance(lst):
-    mean = sum(lst) / len(lst)
-    std = statistics.stdev(lst)
-    return mean, std
+        metric_ci[str(metric_flgd_dict[metric] + '_' + metric + '_' + label[metric_label_dict[metric]])] = {
+            "lower": lower,
+            "upper": upper,
+            "num_points": len(values)
+        }
 
+    # -------------------------
+    # 4. Save JSON per metric
+    # -------------------------
+    output_file = f"ci_results/{metric}.json"
 
-end = time.time()
-start = end - 600
+    with open(output_file, "w") as f:
+        json.dump(metric_ci, f, indent=4)
 
-metric_list = ["system_cpu_utilization_ratio", "system_network_dropped_packets_total"]
-for m in range(len(metric_list)):
-    params = {
-        "query": metric_list[m],
-        "start": start,
-        "end": end,
-        "step": "10s"
-    }
-
-    response = requests.get("http://192.168.1.28:9090/api/v1/query_range", params=params)
-    print(response.status_code)
-    res = json.dumps(response.json(), indent=2)
-    print(res)
-    res = json.loads(res)
-    json_dict = {}
-    for i in range(len(res['data']['result'])):
-        count = 0
-        value_lst = []
-        value = res['data']['result'][i]['values']
-        for j in range(len(value)):
-            value_lst.append(float(value[j][1]))
-
-        mean, std = compute_mean_variance(value_lst)
-        json_dict[str(res['data']['result'][i]['metric'])] = [mean, std]
-
-    print(json_dict)
-    with open(f'{metric_list[m]}.json', 'w') as f:
-        json.dump(json_dict, f, indent=4)
+    print(f"✅ Saved CI for {metric} → {output_file}")
