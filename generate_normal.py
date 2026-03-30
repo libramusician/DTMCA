@@ -49,6 +49,7 @@ def bootstrap_ci(values, n_boot=1000, ci=95):
 # -------------------------
 # 3. Fetch + compute CI per series
 # -------------------------
+metric_ci = {}
 for metric in metrics:
     print(f"\nFetching metric: {metric}")
 
@@ -64,8 +65,6 @@ for metric in metrics:
     if not result["data"]["result"]:
         print(f"❌ No data found for {metric}")
         continue
-
-    metric_ci = {}
 
     # ---- process each series separately ----
     for series in result["data"]["result"]:
@@ -103,9 +102,9 @@ for metric in metrics:
     # -------------------------
     # 4. Save JSON per metric
     # -------------------------
-    output_file = f"ci_results/{metric}.json"
+output_file = f"ci_results.json"
 
-    with open(output_file, "w") as f:
-        json.dump(metric_ci, f, indent=4)
+with open(output_file, "w") as f:
+    json.dump(metric_ci, f, indent=4)
 
-    print(f"✅ Saved CI for {metric} → {output_file}")
+print(f"✅ Saved CI → {output_file}")
