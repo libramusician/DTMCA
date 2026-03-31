@@ -6,6 +6,7 @@ from collections import defaultdict
 
 import prometheus_client
 import requests
+import pandas as pd
 import urllib3.util.connection as urllib3_cn
 from prometheus_client import Gauge, CollectorRegistry, Counter, Histogram, start_http_server
 
@@ -28,6 +29,11 @@ operation_latency_histogram = Histogram(
     registry=registry
 )
 
+# -------------------------
+# GLOBAL TRACE BUFFER (NEW)
+# -------------------------
+trace_records = []
+
 def find_root_cause(current_span, root_causes):
     """
     有人背锅就往外甩，否则自己背
@@ -46,30 +52,37 @@ def get_traces_by_service_jaeger_url(service_name, start, end):
         "start": start,
         "end": end,
     }
-
-    base_url = "http://localhost:8080/jaeger/ui/api/traces"
+    base_url = "http://192.168.1.27:8080/jaeger/ui/api/traces"
     return f"{base_url}?{urllib.parse.urlencode(params)}"
 
 
 def record_operation_metrics(span_node: SpanNode):
-    """
-    记录操作的Prometheus指标：成功/失败计数 + 延迟分布
-    """
     service = span_node.service
     operation = span_node.operation
 
     if not service or not operation:
         return
 
-    duration = span_node.duration / 1000
-    # duration_seconds = span_node.duration / 1_000_000
+    duration = span_node.duration / 1000  # ms
+    timestamp = int(span_node.start_time_stamp / 1_000_000)  # seconds
 
+    error = 1 if span_node.error else 0
+
+    # -------------------------
+    # NEW: store for CSV
+    # -------------------------
+    trace_records.append({
+        "time": timestamp,
+        "service": service,
+        "operation": operation,
+        "latency": duration,
+        "error": error
+    })
+
+    # Existing Prometheus logic
     if span_node.error:
         operation_fail_gauge.labels(service=service, operation=operation).inc(1)
-    # else:
-    #     operation_success_gauge.labels(service=service, operation=operation).inc(1)
 
-    # 记录延迟，无论成功失败都记录
     operation_latency_histogram.labels(
         service=service,
         operation=operation,
@@ -93,7 +106,7 @@ def query_container_metrics(container_id, start, end):
 def get_traces_by_service(service_name):
     end_ts = int(time.time() * 1_000_000)
     due_ts = end_ts - (1 * 60 * 1_000_000)
-    start_ts = end_ts - (2 * 60 * 1_000_000)
+    start_ts = end_ts - (30 * 60 * 1_000_000)  # 30 minutes
     url = get_traces_by_service_jaeger_url(service_name, start_ts, end_ts)
     response = requests.get(url, timeout=5)
     data = response.json()['data']
@@ -188,11 +201,14 @@ def get_traces_by_service(service_name):
 
         for failed_service in trace.failed_services:
             failed_services_count[failed_service] += 1
-            for root_cause in trace.root_causes:
-                root_cause: SpanNode
-                serviceA_failed_due_to_serviceB_count[f'{failed_service}->{root_cause.service}'] += 1
-                record_operation_metrics(root_cause)
-                problem_container_ids.add(root_cause.process.container_id)
+            for span in trace.spans.values():
+                if span.service:
+                    serviceA_failed_due_to_serviceB_count[f'{failed_service}->{span.service}'] += 1
+
+                record_operation_metrics(span)
+
+                if span.process and span.process.container_id:
+                    problem_container_ids.add(span.process.container_id)
         if failed_services_count:
             print(f'Failed services count: {failed_services_count.items()}')
         if serviceA_failed_due_to_serviceB_count:
@@ -202,7 +218,7 @@ def get_traces_by_service(service_name):
 
 
 def get_all_services():
-    resp = requests.get("http://localhost:8080/jaeger/ui/api/services", timeout=5)
+    resp = requests.get("http://192.168.1.27:8080/jaeger/ui/api/services", timeout=5)
     return resp.json()["data"]
 
 def get_all_traces():
@@ -211,12 +227,63 @@ def get_all_traces():
     for service in services:
         t = get_traces_by_service(service_name=service)
 
+
+
+import os
+
+def build_csv(filename="trace_metrics.csv", window=15):
+    global trace_records
+
+    if not trace_records:
+        print("No trace records collected")
+        return
+
+    df = pd.DataFrame(trace_records)
+
+    # Aggregate
+    df["time"] = (df["time"] // window) * window
+    grouped = df.groupby(["time", "service"])
+
+    agg_df = grouped.agg({
+        "latency": "mean",
+        "error": "mean"
+    }).reset_index()
+
+    # Pivot
+    latency_df = agg_df.pivot(index="time", columns="service", values="latency")
+    error_df = agg_df.pivot(index="time", columns="service", values="error")
+
+    latency_df.columns = [f"{s}_latency" for s in latency_df.columns]
+    error_df.columns = [f"{s}_error_rate" for s in error_df.columns]
+
+    df_final = pd.concat([latency_df, error_df], axis=1)
+    df_final = df_final.sort_index().ffill().bfill().reset_index()
+
+    # Drop constant columns
+    non_time_cols = [c for c in df_final.columns if c != "time"]
+    df_final = df_final[["time"] + [c for c in non_time_cols if df_final[c].nunique() > 1]]
+
+    # -------------------------
+    # ✅ Append instead of overwrite
+    # -------------------------
+    if os.path.exists(filename):
+        df_final.to_csv(filename, mode='a', header=False, index=False)
+    else:
+        df_final.to_csv(filename, index=False)
+
+    print(f"Appended to {filename}")
+
+    # Keep only last N minutes (e.g., 1 hour)
+    cutoff = int(time.time()) - 3600  # 1 hour
+
+    trace_records = [r for r in trace_records if r["time"] >= cutoff]
+
+
 if __name__ == '__main__':
     start_http_server(8000, registry=registry)
-    while True:
-        # operation_success_gauge.clear()
-        operation_fail_gauge.clear()
-        operation_latency_histogram.clear()
-        # get_all_traces()
-        get_traces_by_service(service_name='recommendation')
-        time.sleep(60)
+    # operation_success_gauge.clear()
+    operation_fail_gauge.clear()
+    operation_latency_histogram.clear()
+    get_all_traces()
+    # get_traces_by_service(service_name='recommendation')
+    build_csv("trace_metrics.csv")
