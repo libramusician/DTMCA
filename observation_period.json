@@ -1,0 +1,6 @@
+{
+  "jvm_cpu_recent_utilization_ratio": 4,
+  "container_memory_percent_ratio": 1,
+  "kafka_consumer_records_lag": 4,
+  "jvm_gc_duration_seconds_bucket": 4
+}

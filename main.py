@@ -1,3 +1,6 @@
+import glob
+import os
+
 import pandas as pd
 import matplotlib.pyplot as plt
 
@@ -7,10 +10,42 @@ def create_service_dashboard(csv_file_path):
     CSV格式要求：serviceName, startTime, avg_time, num, succee_num, succee_rate
     """
     # 1. 读取CSV文件（假设使用制表符分隔，如果是逗号分隔请改为 sep=',')
-    df = pd.read_csv(csv_file_path)
+    if isinstance(csv_file_path, list):
+        csv_files = csv_file_path
+    else:
+        csv_files = sorted(glob.glob(csv_file_path))
+
+    if not csv_files:
+        print(f"未找到匹配的CSV文件: {csv_file_path}")
+        return
+
+    print(f"找到 {len(csv_files)} 个文件:")
+    for f in csv_files:
+        print(f"  - {f}")
+
+    dfs = []
+    for file in csv_files:
+        try:
+            df = pd.read_csv(file)
+            # 添加来源文件列（可选，用于调试）
+            df['source_file'] = os.path.basename(file)
+            dfs.append(df)
+            print(f"  ✓ 读取 {file}: {len(df)} 行")
+        except Exception as e:
+            print(f"  ✗ 读取 {file} 失败: {e}")
+
+    if not dfs:
+        print("没有成功读取任何文件")
+        return
+
+    # 合并所有数据
+    df = pd.concat(dfs, ignore_index=True)
+    print(f"\n合并后总行数: {len(df)}")
 
     # 2. 数据预处理：转换时间戳为可读时间
     df['datetime'] = pd.to_datetime(df['startTime'], unit='ms')
+
+    df = df.sort_values('datetime').reset_index(drop=True)
 
     # 3. 创建图表
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
@@ -74,4 +109,4 @@ def create_service_dashboard(csv_file_path):
 
 # 使用示例
 if __name__ == "__main__":
-    create_service_dashboard('2020_05_22/business/esb.csv')
+    create_service_dashboard('2020_04_2*/business/esb.csv')
