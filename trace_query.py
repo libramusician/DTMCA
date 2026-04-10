@@ -47,7 +47,7 @@ def get_traces_by_service_jaeger_url(service_name, start, end):
         "end": end,
     }
 
-    base_url = "http://localhost:8080/jaeger/ui/api/traces"
+    base_url = "http://app.libra.com:8080/jaeger/ui/api/traces"
     return f"{base_url}?{urllib.parse.urlencode(params)}"
 
 
@@ -202,7 +202,7 @@ def get_traces_by_service(service_name):
 
 
 def get_all_services():
-    resp = requests.get("http://localhost:8080/jaeger/ui/api/services", timeout=5)
+    resp = requests.get("http://app.libra.com:8080/jaeger/ui/api/services", timeout=5)
     return resp.json()["data"]
 
 def get_all_traces():
@@ -217,6 +217,6 @@ if __name__ == '__main__':
         # operation_success_gauge.clear()
         operation_fail_gauge.clear()
         operation_latency_histogram.clear()
-        # get_all_traces()
-        get_traces_by_service(service_name='recommendation')
+        get_all_traces()
+        # get_traces_by_service(service_name='recommendation')
         time.sleep(60)

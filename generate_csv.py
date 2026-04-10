@@ -2,22 +2,21 @@ import json
 import pandas as pd
 import time
 import requests
+from json_to_csv import create_jaegar_csv
 
 
 def create_csv():
-    PROM_URL = "http://192.168.1.27:9090/api/v1/query_range"
-    metric_flgd_dict = {"jvm_cpu_recent_utilization_ratio": "adHighCpu", "container_memory_percent_ratio": "emailMemoryLeak",
-                   "kafka_consumer_commit_rate": "kafkaQueueProblems"}  # multiple metrics
+    PROM_URL = "http://app.libra.com:9090/api/v1/query_range"
 
-    metric_label_dict = {"jvm_cpu_recent_utilization_ratio": "instance", "container_memory_percent_ratio": "container_name",
-                   "kafka_consumer_commit_rate": "instance"}
+    metric_service_dict = {"jvm_cpu_recent_utilization_ratio": "service_name", "container_memory_percent_ratio": "container_name",
+                           "jvm_gc_duration_seconds_bucket": "service_name", "kafka_consumer_records_lag": "service_name"}
 
     end = time.time()
-    start = end - 600  # last 10 minutes
+    start = end - 300  # last 5 minutes
 
     all_rows = {}
 
-    for metric in list(metric_flgd_dict.keys()):
+    for metric in list(metric_service_dict.keys()):
         params = {
             "query": metric,
             "start": start,
@@ -32,11 +31,11 @@ def create_csv():
         for ts in response['data']['result']:
             # pick a label to identify the column (e.g., host_name)
             name = ts['metric'].get('__name__')
-            instance = ts['metric'].get(metric_label_dict[metric])
-            col_name = metric_flgd_dict[metric] + '_' + name + '_' + str(instance)
+            col_name = name + '_' + ts['metric'][metric_service_dict[name]]
             print("Column name:", col_name)
             # convert values into a Series
             times = [float(v[0]) for v in ts['values']]
+            times = list(map(lambda x: x - times[0], times))
             values = [float(v[1]) for v in ts['values']]
             s = pd.Series(values, index=times)
 
@@ -58,6 +57,15 @@ def create_csv():
     df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
 
     # Save CSV
-    df.to_csv("prometheus_metrics.csv", index=False)
-    my_csv = pd.read_csv("prometheus_metrics.csv")
-    print(my_csv.shape)
+    df.to_csv("prometheus_metrics/prometheus_metrics_recommendationCacheFailure.csv", index=False)
+    time.sleep(5)
+    prome_csv = pd.read_csv("prometheus_metrics/prometheus_metrics_recommendationCacheFailure.csv")
+    print(prome_csv.shape)
+    jaegar_csv = pd.read_csv("latency_and_error_services.csv")
+    merged = pd.merge(prome_csv, jaegar_csv, on='time', how='inner')
+    merged.to_csv("merged_metrics/merged_metrics_recommendationCacheFailure.csv", index=False)
+    print(merged)
+
+create_jaegar_csv()
+time.sleep(5)
+create_csv()

@@ -8,22 +8,22 @@ import os
 # -------------------------
 # 1. Prometheus settings
 # -------------------------
-PROM_URL = "http://192.168.1.27:9090/api/v1/query_range"
+PROM_URL = "http://app.libra.com:9090/api/v1/query_range"
 
 metrics = [
     "jvm_cpu_recent_utilization_ratio",
     "container_memory_percent_ratio",
-    "kafka_consumer_commit_rate"
+    "kafka_consumer_records_lag",
+    "jvm_gc_duration_seconds_bucket"
 ]
 
-metric_flgd_dict = {"jvm_cpu_recent_utilization_ratio": "adHighCpu", "container_memory_percent_ratio": "emailMemoryLeak",
-               "kafka_consumer_commit_rate": "kafkaQueueProblems"}  # multiple metrics
+metric_service_dict = {"jvm_cpu_recent_utilization_ratio": "service_name", "container_memory_percent_ratio": "container_name",
+                           "jvm_gc_duration_seconds_bucket": "service_name", "kafka_consumer_records_lag": "service_name"}
 
-metric_label_dict = {"jvm_cpu_recent_utilization_ratio": "instance", "container_memory_percent_ratio": "container_name",
-                     "kafka_consumer_commit_rate": "instance"}
 
-hours = 5
-step = 5  # seconds
+
+hours = 4
+step = 15  # seconds
 
 start_time = int(time.time()) - hours * 60 * 60
 end_time = int(time.time())
@@ -93,7 +93,7 @@ for metric in metrics:
         lower, upper = bootstrap_ci(values)
 
 
-        metric_ci[str(metric_flgd_dict[metric] + '_' + metric + '_' + label[metric_label_dict[metric]])] = {
+        metric_ci[str(metric + '_' + label[metric_service_dict[metric]])] = {
             "lower": lower,
             "upper": upper,
             "num_points": len(values)
